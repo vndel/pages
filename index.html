@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Link List with Copy</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f4f4;
+      padding: 30px;
+    }
+
+    h1 {
+      text-align: center;
+      color: #333;
+    }
+
+    .link-container {
+      max-width: 600px;
+      margin: auto;
+    }
+
+    .link-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 10px 15px;
+      margin-bottom: 10px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      transition: background 0.2s ease;
+    }
+
+    .link-item:hover {
+      background: #f0f8ff;
+    }
+
+    .link-text {
+      color: #0077cc;
+      word-break: break-all;
+      text-decoration: none;
+      flex: 1;
+      margin-right: 10px;
+    }
+
+    .copy-btn {
+      background: #0077cc;
+      color: #fff;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+
+    .copy-btn:hover {
+      background: #005fa3;
+    }
+
+    .copied-msg {
+      color: green;
+      font-size: 13px;
+      margin-left: 10px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>📋 Copy Links</h1>
+  <div class="link-container" id="linkList"></div>
+
+  <script>
+    const links = [
+      "ayboya.mp3",
+      "crash.mp3",
+      "jbrayel.mp3"
+    ].map(e => {
+	if (e.includes("http")) {
+		return e
+	} else {
+		return `https://vndel.github.io/pages/${e}`
+	}
+	
+	}); // يمكنك تعديل أو توليد هذا الآري حسب الحاجة
+
+    const linkList = document.getElementById('linkList');
+
+    links.forEach((link, index) => {
+      const item = document.createElement('div');
+      item.className = 'link-item';
+
+      const a = document.createElement('a');
+      a.href = link;
+      a.textContent = link;
+      a.className = 'link-text';
+      a.target = '_blank';
+
+      const button = document.createElement('button');
+      button.textContent = 'Copy';
+      button.className = 'copy-btn';
+
+      const msg = document.createElement('span');
+      msg.className = 'copied-msg';
+      msg.style.display = 'none';
+      msg.textContent = 'Copied!';
+
+      button.onclick = () => {
+        navigator.clipboard.writeText(link).then(() => {
+          msg.style.display = 'inline';
+          setTimeout(() => {
+            msg.style.display = 'none';
+          }, 1500);
+        });
+      };
+
+      item.appendChild(a);
+      item.appendChild(button);
+      item.appendChild(msg);
+      linkList.appendChild(item);
+    });
+  </script>
+
+</body>
+</html>
