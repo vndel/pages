@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>بطاقة تحميل مود – HTML/CSS</title>
+  <style>
+    :root {
+      --bg: #0b0f1a;
+      --card: #0f1629;
+      --card-2: #121b33;
+      --text: #e7f0ff;
+      --muted: #9fb3d1;
+      --accent: #5ee1a5;
+      --accent-2: #6ea8fe;
+      --ring: rgba(110, 168, 254, 0.5);
+      --radius: 18px;
+      --shadow: 0 10px 30px rgba(0, 12, 60, 0.35);
+      --border: rgba(255,255,255,0.08);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 32px; min-height: 100vh;
+      font-family: 'Tajawal', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: radial-gradient(1200px 400px at 80% -10%, rgba(110,168,254,0.08), transparent),
+                  radial-gradient(600px 300px at 10% 110%, rgba(94,225,165,0.10), transparent),
+                  var(--bg);
+      color: var(--text);
+      display: grid; place-items: center;
+    }
+
+    .download-card {
+      width: min(900px, 92vw);
+      min-height: 150px;
+      display: grid;
+      grid-template-columns: 140px 1fr auto;
+      align-items: center;
+      gap: 22px;
+      padding: 22px 22px 22px 26px;
+      border-radius: var(--radius);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0)) padding-box,
+        linear-gradient(135deg, rgba(110,168,254,0.35), rgba(94,225,165,0.35)) border-box;
+      border: 1px solid transparent;
+      box-shadow: var(--shadow);
+      position: relative;
+      isolation: isolate;
+      transition: transform .35s cubic-bezier(.2,.9,.2,1), filter .35s, box-shadow .35s;
+    }
+
+    /* soft light ring on hover */
+    .download-card::after {
+      content: "";
+      position: absolute; inset: -2px;
+      border-radius: calc(var(--radius) + 2px);
+      background: radial-gradient(500px 180px at 90% 10%, rgba(110,168,254,0.12), transparent),
+                  radial-gradient(400px 150px at 0% 100%, rgba(94,225,165,0.10), transparent);
+      z-index: -1;
+      opacity: 0; transition: opacity .35s ease;
+    }
+
+    .download-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 18px 50px rgba(0, 12, 60, 0.45);
+      filter: saturate(1.05);
+    }
+    .download-card:hover::after { opacity: 1; }
+
+    .badge {
+      justify-self: start;
+      width: 120px; height: 120px;
+      display: grid; place-items: center;
+      background: radial-gradient(60% 60% at 50% 40%, rgba(110,168,254,0.15), transparent), var(--card);
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      position: relative; overflow: hidden;
+    }
+    .badge svg { width: 62px; height: 62px; }
+    .badge .shine {
+      position: absolute; inset: 0; pointer-events: none;
+      background: linear-gradient(120deg, transparent 0 40%, rgba(255,255,255,.15) 50%, transparent 60% 100%);
+      transform: translateX(-120%);
+      transition: transform .8s ease;
+    }
+    .download-card:hover .badge .shine { transform: translateX(0%); }
+
+    .content { align-self: center; }
+    .top {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    }
+    .title {
+      font-size: 1.35rem; font-weight: 800; letter-spacing: .2px;
+    }
+    .version {
+      padding: 6px 10px; border-radius: 999px;
+      font-size: .85rem; color: #0a1426; font-weight: 700;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 6px 16px rgba(110,168,254,0.35);
+    }
+    .desc { margin: 8px 0 12px; color: var(--muted); line-height: 1.6; }
+    .meta { font-size: .9rem; color: #c9d7f0; opacity: .85; }
+
+    .cta {
+      align-self: stretch;
+      display: grid; place-items: center;
+    }
+    .btn {
+      appearance: none; -webkit-appearance: none; cursor: pointer;
+      text-decoration: none; color: #0a1426; font-weight: 800; letter-spacing: .3px;
+      padding: 14px 22px; border-radius: 14px;
+      border: 0;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 10px 20px rgba(110,168,254,0.35);
+      display: inline-flex; align-items: center; gap: 10px;
+      transform: translateZ(0);
+      transition: transform .25s ease, box-shadow .25s ease, filter .25s ease;
+    }
+    .btn svg { width: 20px; height: 20px; }
+    .btn:hover { transform: translateY(-2px); filter: saturate(1.08); box-shadow: 0 14px 26px rgba(110,168,254,0.45); }
+    .btn:active { transform: translateY(0); box-shadow: 0 8px 12px rgba(110,168,254,0.3); }
+
+    /* subtle animated arrow on card hover */
+    .download-card:hover .btn .arrow { transform: translateX(-2px); }
+    .arrow { transition: transform .35s ease; }
+
+    /* responsive: keep it افقي */
+    @media (max-width: 720px) {
+      .download-card { grid-template-columns: 110px 1fr; }
+      .cta { grid-column: 1 / -1; justify-self: start; }
+    }
+
+    /* احترام تفضيل تقليل الحركة */
+    @media (prefers-reduced-motion: reduce) {
+      .download-card, .btn, .arrow, .badge .shine { transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+
+  <article class="download-card" aria-label="بطاقة تحميل المود">
+    <div class="badge" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+        <path d="M12 3v12" />
+        <path d="M7 11l5 5 5-5" />
+        <rect x="3" y="17" width="18" height="4" rx="1.5" />
+      </svg>
+      <span class="shine"></span>
+    </div>
+
+    <div class="content">
+      <div class="top">
+        <h3 class="title">تحميل المود</h3>
+        <span class="version" title="الإصدار">v2.3.1</span>
+      </div>
+      <p class="desc">نسخة محسّنة مع إصلاحات واستقرار أعلى. يدعم أحدث التحديثات ويعمل على جميع الإصدارات المتوافقة.</p>
+      <div class="meta">الحجم: 142MB • آخر تحديث: 16 أغسطس 2025</div>
+    </div>
+
+    <div class="cta">
+      <!-- ضع رابط الملف الحقيقي هنا واستفد من خاصية download -->
+      <a class="btn" href="./mod-v2.3.1.zip" download>
+        تنزيل الآن
+        <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 12H4" />
+          <path d="M10 8l4 4-4 4" />
+        </svg>
+      </a>
+    </div>
+  </article>
+
+</body>
+</html>
