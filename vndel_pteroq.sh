@@ -229,8 +229,6 @@ panel_conf(){
     # generate config.yml the right way
     if php artisan list | grep -q "p:node:configuration"; then
       php artisan p:node:configuration $NODE_ID > /etc/pterodactyl/config.yml
-    elif php artisan list | grep -q "p:wings:configuration"; then
-      php artisan p:wings:configuration $NODE_ID > /etc/pterodactyl/config.yml
     else
       echo "(!) No artisan config generator found. Copy config from Panel → Nodes → Configuration."
     fi
