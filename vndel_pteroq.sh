@@ -77,9 +77,9 @@ panel_conf(){
     --scheme="$NODE_SCHEME" \
     --proxy=0 \
     --maintenance=0 \
-    --maxMemory=0 \
+    --maxMemory=2500000 \
     --overallocateMemory=-1 \
-    --maxDisk=0 \
+    --maxDisk=2500000 \
     --overallocateDisk=-1 \
     --uploadSize=100 \
     --daemonListeningPort=8080 \
