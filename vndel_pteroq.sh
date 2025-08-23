@@ -11,7 +11,7 @@ dist="$(. /etc/os-release && echo "$ID")"
 version="$(. /etc/os-release && echo "$VERSION_ID")"
 
 finish(){
-  clear || true
+ # clear || true
   echo ""
   echo "[Vndel] [!] Panel installed successfully."
   echo ""
