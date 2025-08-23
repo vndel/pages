@@ -226,6 +226,8 @@ panel_conf(){
     systemctl stop wings 2>/dev/null || true
     systemctl disable wings 2>/dev/null || true
 
+
+    sleep 4
     # generate config.yml the right way
     php artisan p:node:configuration $NODE_ID > /etc/pterodactyl/config.yml
 
