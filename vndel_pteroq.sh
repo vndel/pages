@@ -11,7 +11,7 @@ dist="$(. /etc/os-release && echo "$ID")"
 version="$(. /etc/os-release && echo "$VERSION_ID")"
 
 finish(){
- # clear || true
+  clear || true
   echo ""
   echo "[Vndel] [!] Panel installed successfully."
   echo ""
@@ -22,7 +22,6 @@ require_arg(){ if [ -z "${!1:-}" ]; then echo "Missing arg: $1"; exit 1; fi; }
 panel_conf(){
   cd /var/www/pterodactyl || exit 1
 
-  # تحديد URL على حسب SSL
   if [ "${SSL,,}" = "true" ]; then
     appurl="https://${FQDN}"
   else
@@ -57,13 +56,14 @@ panel_conf(){
     --name-first="$FIRSTNAME" --name-last="$LASTNAME" \
     --password="$PASSWORD" --admin=1 || true
 
-  # ===== Location + Node =====
-  echo ">>> Creating Location and Node..."
+  # ===== Location =====
   LOC_SHORT="dc1"
   LOC_LONG="Default Datacenter"
   php artisan p:location:make --short="$LOC_SHORT" --long="$LOC_LONG" || true
-  LOCATION_ID=$(mariadb -u pterodactyl -p"$DBPASSWORD" panel -sN -e "SELECT id FROM locations WHERE short='${LOC_SHORT}' LIMIT 1;")
+  LOCATION_ID=$(mariadb -u root -sN -e "USE panel; SELECT id FROM locations WHERE short='${LOC_SHORT}' LIMIT 1;")
+  echo ">>> Location=$LOCATION_ID"
 
+  # ===== Node =====
   NODE_NAME="auto-node"
   NODE_DESC="Auto-created node"
   NODE_SCHEME="$([ "${SSL,,}" = "true" ] && echo https || echo http)"
@@ -86,17 +86,29 @@ panel_conf(){
     --daemonSFTPPort=2022 \
     --daemonBase="/var/lib/pterodactyl/volumes" || true
 
-  NODE_ID=$(mariadb -u pterodactyl -p"$DBPASSWORD" panel -sN -e "SELECT id FROM nodes WHERE fqdn='${FQDN}' LIMIT 1;")
-  echo ">>> Location=$LOCATION_ID, Node=$NODE_ID"
+  NODE_ID=$(mariadb -u root -sN -e "USE panel; SELECT id FROM nodes WHERE fqdn='${FQDN}' OR name='${NODE_NAME}' ORDER BY id ASC LIMIT 1;")
+  echo ">>> Node=$NODE_ID"
 
-  echo ">>> Setting ownerships and services..."
+  # ===== Wings config generation =====
+  if [ "$WINGS" = true ] && [ -n "$NODE_ID" ]; then
+    echo ">>> Generating wings config.yml for Node=$NODE_ID..."
+    if php artisan list | grep -q "p:node:configuration"; then
+      php artisan p:node:configuration --node="$NODE_ID" --output="/etc/pterodactyl/config.yml" || true
+    elif php artisan list | grep -q "p:wings:configuration"; then
+      php artisan p:wings:configuration --node="$NODE_ID" --output="/etc/pterodactyl/config.yml" || true
+    else
+      echo "(!) Artisan config command not found. Get config manually from Panel → Node → Configuration"
+    fi
+  fi
+
+  # ===== Services =====
   chown -R www-data:www-data /var/www/pterodactyl/*
   curl -fsSL -o /etc/systemd/system/pteroq.service https://raw.githubusercontent.com/guldkage/Pterodactyl-Installer/main/configs/pteroq.service
   (crontab -l 2>/dev/null; echo "* * * * * php /var/www/pterodactyl/artisan schedule:run >> /dev/null 2>&1") | crontab -
   systemctl enable --now redis-server
   systemctl enable --now pteroq.service
 
-  echo ">>> Configuring Nginx..."
+  # ===== Nginx =====
   rm -rf /etc/nginx/sites-enabled/default
   if [ "${SSL,,}" = "true" ]; then
     curl -fsSL -o /etc/nginx/sites-enabled/pterodactyl.conf \
