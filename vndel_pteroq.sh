@@ -237,7 +237,7 @@ panel_conf(){
 
     # ✅ الطريقة الصحيحة لكتابة config.yml
     if php artisan list | grep -q "p:node:configuration"; then
-      php artisan p:node:configuration "$NODE_ID" > /etc/pterodactyl/config.yml
+      php artisan p:node:configuration $NODE_ID > /etc/pterodactyl/config.yml
     else
       echo "(!) No artisan config generator found. Copy config from Panel → Nodes → Configuration."
     fi
@@ -259,6 +259,15 @@ panel_install(){
 
   sed -i 's/character-set-collations = utf8mb4=uca1400_ai_ci/character-set-collations = utf8mb4=utf8mb4_general_ci/' \
     /etc/mysql/mariadb.conf.d/50-server.cnf 2>/dev/null || true
+
+  echo ">>> Allowing external MySQL access..."
+  CONF_FILE="/etc/mysql/mariadb.conf.d/50-server.cnf"
+  if ! grep -q "bind-address" "$CONF_FILE"; then
+    echo "[mysqld]" >> "$CONF_FILE"
+    echo "bind-address=0.0.0.0" >> "$CONF_FILE"
+  else
+    sed -i 's/^bind-address.*/bind-address=0.0.0.0/' "$CONF_FILE"
+  fi
   systemctl restart mariadb
 
   echo ">>> Preparing Pterodactyl panel..."
