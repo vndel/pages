@@ -2,23 +2,21 @@
 set -uo pipefail
 
 ########################################################################
-# Pterodactyl fast installer (Panel + Location + Node + DB Host + Wings)
+# Pterodactyl fast installer (Panel + Location + Node + DB Host + Wings + phpMyAdmin)
 # Usage:
 #   ./install.sh <FQDN> <SSL true|false> <email> <username> <password> <wings true|false>
-# Example:
-#   ./install.sh game.vndel.com true info@vndel.com admin 'Strong#Pass1' true
 ########################################################################
 
 dist="$(. /etc/os-release && echo "$ID")"
 version="$(. /etc/os-release && echo "$VERSION_ID")"
 
 finish(){
-  ##clear || true
+  clear || true
   echo ""
   echo "[Vndel] [!] Panel installed successfully."
+  echo "phpMyAdmin: http://${FQDN}/phpmyadmin   (أو https إذا مفعّل SSL)"
   echo ""
-
-  echo "[Vndel] [!] Restarting ...."
+  echo "Restarting after 5 secounds...."
   sleep 5
   reboot
 }
@@ -26,14 +24,12 @@ finish(){
 require_arg(){ if [ -z "${!1:-}" ]; then echo "Missing arg: $1"; exit 1; fi; }
 
 create_database_host_user() {
-  # DB Host user (خارجي) — نفس باسورد البانل DBPASSWORD
   mariadb -u root -e "CREATE USER IF NOT EXISTS 'pterodactyl'@'%' IDENTIFIED BY '${DBPASSWORD}';"
   mariadb -u root -e "GRANT ALL PRIVILEGES ON *.* TO 'pterodactyl'@'%' WITH GRANT OPTION;"
   mariadb -u root -e "FLUSH PRIVILEGES;"
 }
 
 add_panel_database_host() {
-  # إضافة Database Host داخل البانل (يحفظ مشفّرًا عبر Eloquent/Mutators)
   (
     cd /var/www/pterodactyl || exit 1
     FQDN="$FQDN" DBPASSWORD="$DBPASSWORD" php -r '
@@ -65,6 +61,59 @@ add_panel_database_host() {
       echo "Database Host added.\n";
     '
   )
+}
+
+install_phpmyadmin() {
+  echo ">>> Installing phpMyAdmin…"
+  mkdir -p /var/www/pterodactyl/public
+  cd /var/www/pterodactyl/public || exit 1
+
+  # نزّل آخر إصدار EN
+  curl -fsSL -o pma.tar.gz https://www.phpmyadmin.net/downloads/phpMyAdmin-latest-english.tar.gz
+  # استخرج واعرف اسم مجلد الإصدار ديناميكياً
+  PMASRC="$(tar -tzf pma.tar.gz | head -1 | cut -f1 -d'/')"
+  tar -xzf pma.tar.gz
+  rm -f pma.tar.gz
+
+  # انقل للمسار النهائي
+  rm -rf phpmyadmin 2>/dev/null || true
+  mv "$PMASRC" phpmyadmin
+
+  # tmp + صلاحيات
+  mkdir -p phpmyadmin/tmp
+  chmod 0777 phpmyadmin/tmp
+
+  # blowfish secret
+  BLOWFISH=$(tr -dc 'A-Za-z0-9!@#%^&*()_+=-{}[]' </dev/urandom | head -c 32)
+
+  # اكتب config.inc.php (cookie auth + tmp)
+  cat > phpmyadmin/config.inc.php <<'PHP'
+<?php
+declare(strict_types=1);
+$cfg = [];
+$cfg['blowfish_secret'] = '__BLOWFISH__';
+$cfg['TempDir'] = __DIR__ . '/tmp';
+$i = 0;
+$cfg['Servers'] = [];
+$i++;
+$cfg['Servers'][$i]['host'] = '127.0.0.1';
+$cfg['Servers'][$i]['port'] = 3306;
+$cfg['Servers'][$i]['auth_type'] = 'cookie';
+$cfg['UploadDir'] = '';
+$cfg['SaveDir'] = '';
+PHP
+
+  # استبدل السرّ
+  sed -i "s|__BLOWFISH__|$BLOWFISH|g" phpmyadmin/config.inc.php
+
+  # احذف مجلد setup للحماية (غير مطلوب مع config الجاهز)
+  rm -rf phpmyadmin/setup 2>/dev/null || true
+
+  # صلاحيات نهائية
+  chown -R www-data:www-data phpmyadmin
+  find phpmyadmin -type f -exec chmod 0644 {} \; 2>/dev/null || true
+  find phpmyadmin -type d -exec chmod 0755 {} \; 2>/dev/null || true
+  chmod 0777 phpmyadmin/tmp
 }
 
 panel_conf(){
@@ -149,7 +198,7 @@ panel_conf(){
   systemctl enable --now redis-server
   systemctl enable --now pteroq.service
 
-  # ===== Nginx + Cert (قبل تشغيل Wings لو SSL=true) =====
+  # ===== Nginx + Cert (قبل Wings لو SSL=true) =====
   rm -rf /etc/nginx/sites-enabled/default
   if [ "${SSL,,}" = "true" ]; then
     curl -fsSL -o /etc/nginx/sites-enabled/pterodactyl.conf \
@@ -165,14 +214,15 @@ panel_conf(){
     systemctl restart nginx
   fi
 
+  # ===== phpMyAdmin =====
+  install_phpmyadmin
+
   # ===== Wings (تثبيت + توليد config.yml بالطريقة الصحيحة + تشغيل) =====
   if [ "${WINGS,,}" = "true" ] && [ -n "${NODE_ID:-}" ]; then
     echo ">>> Installing Wings + Docker…"
-    # Docker
     curl -sSL https://get.docker.com/ | CHANNEL=stable bash
     systemctl enable --now docker
 
-    # Wings binary + service (لا نشغل الآن)
     mkdir -p /etc/pterodactyl
     apt-get -y install curl tar unzip
     ARCH="$(uname -m)"; [ "$ARCH" = "x86_64" ] && WARCH="amd64" || WARCH="arm64"
@@ -185,14 +235,13 @@ panel_conf(){
     systemctl stop wings 2>/dev/null || true
     systemctl disable wings 2>/dev/null || true
 
-    # ✅ توليد ملف الإعداد بالطريقة الصحيحة (مثل ما طلبت)
+    # ✅ الطريقة الصحيحة لكتابة config.yml
     if php artisan list | grep -q "p:node:configuration"; then
       php artisan p:node:configuration "$NODE_ID" > /etc/pterodactyl/config.yml
     else
       echo "(!) No artisan config generator found. Copy config from Panel → Nodes → Configuration."
     fi
 
-    # الآن نشغل Wings بعد توفر config + (لو SSL=true الشهادة موجودة)
     systemctl enable --now wings || true
     systemctl restart wings || true
     systemctl status wings --no-pager || true
@@ -204,12 +253,10 @@ panel_conf(){
 panel_install(){
   echo ">>> Installing prerequisites..."
   apt update
-  # MariaDB من apt رسميًا فقط
   apt install -y certbot mariadb-server tar unzip git redis-server nginx \
                  php8.3 php8.3-{cli,gd,mysql,pdo,mbstring,tokenizer,bcmath,xml,fpm,curl,zip}
   curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
 
-  # توافق MariaDB (إن وُجد السطر)
   sed -i 's/character-set-collations = utf8mb4=uca1400_ai_ci/character-set-collations = utf8mb4=utf8mb4_general_ci/' \
     /etc/mysql/mariadb.conf.d/50-server.cnf 2>/dev/null || true
   systemctl restart mariadb
