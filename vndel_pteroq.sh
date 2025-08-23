@@ -227,11 +227,7 @@ panel_conf(){
     systemctl disable wings 2>/dev/null || true
 
     # generate config.yml the right way
-    if php artisan list | grep -q "p:node:configuration"; then
-      php artisan p:node:configuration $NODE_ID > /etc/pterodactyl/config.yml
-    else
-      echo "(!) No artisan config generator found. Copy config from Panel → Nodes → Configuration."
-    fi
+    php artisan p:node:configuration $NODE_ID > /etc/pterodactyl/config.yml
 
     systemctl enable --now wings || true
     systemctl restart wings || true
