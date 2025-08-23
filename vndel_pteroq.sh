@@ -33,9 +33,9 @@ panel_conf(){
   DBPASSWORD=$(tr -dc 'A-Za-z0-9' </dev/urandom | fold -w 16 | head -n 1)
 
   echo ">>> Configuring MariaDB for panel..."
-  mariadb -u root -e "CREATE USER IF NOT EXISTS 'pterodactyl'@'127.0.0.1' IDENTIFIED BY '${DBPASSWORD}';"
+  mariadb -u root -e "CREATE USER IF NOT EXISTS 'pterodactyl'@'%' IDENTIFIED BY '${DBPASSWORD}';"
   mariadb -u root -e "CREATE DATABASE IF NOT EXISTS panel;"
-  mariadb -u root -e "GRANT ALL PRIVILEGES ON panel.* TO 'pterodactyl'@'127.0.0.1' WITH GRANT OPTION;"
+  mariadb -u root -e "GRANT ALL PRIVILEGES ON panel.* TO 'pterodactyl'@'%' WITH GRANT OPTION;"
   mariadb -u root -e "FLUSH PRIVILEGES;"
 
   echo ">>> Running artisan setup..."
