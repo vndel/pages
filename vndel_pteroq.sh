@@ -6,23 +6,27 @@ set -uo pipefail
 # Usage:
 #   ./install.sh <FQDN> <SSL true|false> <email> <username> <password> <wings true|false>
 # Example:
-#   ./install.sh 93.113.180.194 false info@vndel.com admin 'Strong#Pass1' true
+#   ./install.sh game.vndel.com true info@vndel.com admin 'Strong#Pass1' true
 ########################################################################
 
 dist="$(. /etc/os-release && echo "$ID")"
 version="$(. /etc/os-release && echo "$VERSION_ID")"
 
 finish(){
-  ### clear || true
+  clear || true
   echo ""
   echo "[Vndel] [!] Panel installed successfully."
   echo ""
+
+  echo "[Vndel] [!] Restarting ...."
+  sleep 5
+  reboot
 }
 
 require_arg(){ if [ -z "${!1:-}" ]; then echo "Missing arg: $1"; exit 1; fi; }
 
 create_database_host_user() {
-  # user/password لِـ DB Host (خارجي) — نفس باسورد البانل DBPASSWORD
+  # DB Host user (خارجي) — نفس باسورد البانل DBPASSWORD
   mariadb -u root -e "CREATE USER IF NOT EXISTS 'pterodactyl'@'%' IDENTIFIED BY '${DBPASSWORD}';"
   mariadb -u root -e "GRANT ALL PRIVILEGES ON *.* TO 'pterodactyl'@'%' WITH GRANT OPTION;"
   mariadb -u root -e "FLUSH PRIVILEGES;"
@@ -137,37 +141,7 @@ panel_conf(){
   NODE_ID=$(mariadb -u root -sN -e "USE panel; SELECT id FROM nodes WHERE fqdn='${FQDN}' OR name='${NODE_NAME}' ORDER BY id ASC LIMIT 1;")
   echo ">>> Node=$NODE_ID"
 
-  # ===== Wings (تثبيت + تهيئة + config.yml) =====
-  if [ "${WINGS,,}" = "true" ]; then
-    echo ">>> Installing Wings + Docker…"
-    curl -sSL https://get.docker.com/ | CHANNEL=stable bash
-    systemctl enable --now docker
-
-    mkdir -p /etc/pterodactyl
-    apt-get -y install curl tar unzip
-
-    ARCH="$(uname -m)"; [ "$ARCH" = "x86_64" ] && WARCH="amd64" || WARCH="arm64"
-    curl -fsSL -o /usr/local/bin/wings "https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_${WARCH}"
-    chmod +x /usr/local/bin/wings
-
-    curl -fsSL -o /etc/systemd/system/wings.service \
-      "https://raw.githubusercontent.com/guldkage/Pterodactyl-Installer/main/configs/wings.service"
-    systemctl daemon-reload
-    systemctl enable --now wings || true  # قد يفشل حتى توليد config.yml — عادي
-
-    # توليد config.yml حسب أوامر Artisan المتاحة
-    if [ -n "${NODE_ID:-}" ]; then
-      if php artisan list | grep -q "p:node:configuration"; then
-        php artisan p:node:configuration --node="$NODE_ID" --output="/etc/pterodactyl/config.yml" || true
-      else
-        echo "(!) No artisan config generator found. Copy config from Panel → Nodes → Configuration."
-      fi
-      systemctl restart wings || true
-      systemctl status wings --no-pager || true
-    fi
-  fi
-
-  # ===== Services & Nginx =====
+  # ===== Services (pteroq + redis) =====
   chown -R www-data:www-data /var/www/pterodactyl/*
   curl -fsSL -o /etc/systemd/system/pteroq.service \
     https://raw.githubusercontent.com/guldkage/Pterodactyl-Installer/main/configs/pteroq.service
@@ -175,6 +149,7 @@ panel_conf(){
   systemctl enable --now redis-server
   systemctl enable --now pteroq.service
 
+  # ===== Nginx + Cert (قبل تشغيل Wings لو SSL=true) =====
   rm -rf /etc/nginx/sites-enabled/default
   if [ "${SSL,,}" = "true" ]; then
     curl -fsSL -o /etc/nginx/sites-enabled/pterodactyl.conf \
@@ -190,18 +165,51 @@ panel_conf(){
     systemctl restart nginx
   fi
 
+  # ===== Wings (تثبيت + توليد config.yml بالطريقة الصحيحة + تشغيل) =====
+  if [ "${WINGS,,}" = "true" ] && [ -n "${NODE_ID:-}" ]; then
+    echo ">>> Installing Wings + Docker…"
+    # Docker
+    curl -sSL https://get.docker.com/ | CHANNEL=stable bash
+    systemctl enable --now docker
+
+    # Wings binary + service (لا نشغل الآن)
+    mkdir -p /etc/pterodactyl
+    apt-get -y install curl tar unzip
+    ARCH="$(uname -m)"; [ "$ARCH" = "x86_64" ] && WARCH="amd64" || WARCH="arm64"
+    curl -fsSL -o /usr/local/bin/wings "https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_${WARCH}"
+    chmod +x /usr/local/bin/wings
+
+    curl -fsSL -o /etc/systemd/system/wings.service \
+      "https://raw.githubusercontent.com/guldkage/Pterodactyl-Installer/main/configs/wings.service"
+    systemctl daemon-reload
+    systemctl stop wings 2>/dev/null || true
+    systemctl disable wings 2>/dev/null || true
+
+    # ✅ توليد ملف الإعداد بالطريقة الصحيحة (مثل ما طلبت)
+    if php artisan list | grep -q "p:node:configuration"; then
+      php artisan p:node:configuration "$NODE_ID" > /etc/pterodactyl/config.yml
+    else
+      echo "(!) No artisan config generator found. Copy config from Panel → Nodes → Configuration."
+    fi
+
+    # الآن نشغل Wings بعد توفر config + (لو SSL=true الشهادة موجودة)
+    systemctl enable --now wings || true
+    systemctl restart wings || true
+    systemctl status wings --no-pager || true
+  fi
+
   finish
 }
 
 panel_install(){
   echo ">>> Installing prerequisites..."
   apt update
-  # بدون مستودعات خارجية لـ MariaDB — من apt مباشرة
+  # MariaDB من apt رسميًا فقط
   apt install -y certbot mariadb-server tar unzip git redis-server nginx \
                  php8.3 php8.3-{cli,gd,mysql,pdo,mbstring,tokenizer,bcmath,xml,fpm,curl,zip}
   curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
 
-  # تحسين توافق MariaDB (لو كان السطر موجود)
+  # توافق MariaDB (إن وُجد السطر)
   sed -i 's/character-set-collations = utf8mb4=uca1400_ai_ci/character-set-collations = utf8mb4=utf8mb4_general_ci/' \
     /etc/mysql/mariadb.conf.d/50-server.cnf 2>/dev/null || true
   systemctl restart mariadb
