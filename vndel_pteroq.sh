@@ -14,9 +14,9 @@ finish(){
   clear || true
   echo ""
   echo "[Vndel] [!] Panel installed successfully."
-  echo "phpMyAdmin: http://${FQDN}/phpmyadmin Use HTTP or HTTPS
+  echo "phpMyAdmin: http://${FQDN}/phpmyadmin (Use HTTP or HTTPS)"
   echo ""
-  echo "Restarting after 5 secounds...."
+  echo "Restarting after 5 seconds...."
   sleep 5
   reboot
 }
@@ -68,25 +68,20 @@ install_phpmyadmin() {
   mkdir -p /var/www/pterodactyl/public
   cd /var/www/pterodactyl/public || exit 1
 
-  # نزّل آخر إصدار EN
+  # Latest EN build
   curl -fsSL -o pma.tar.gz https://www.phpmyadmin.net/downloads/phpMyAdmin-latest-english.tar.gz
-  # استخرج واعرف اسم مجلد الإصدار ديناميكياً
   PMASRC="$(tar -tzf pma.tar.gz | head -1 | cut -f1 -d'/')"
   tar -xzf pma.tar.gz
   rm -f pma.tar.gz
 
-  # انقل للمسار النهائي
   rm -rf phpmyadmin 2>/dev/null || true
   mv "$PMASRC" phpmyadmin
 
-  # tmp + صلاحيات
   mkdir -p phpmyadmin/tmp
   chmod 0777 phpmyadmin/tmp
 
-  # blowfish secret
   BLOWFISH=$(tr -dc 'A-Za-z0-9!@#%^&*()_+=-{}[]' </dev/urandom | head -c 32)
 
-  # اكتب config.inc.php (cookie auth + tmp)
   cat > phpmyadmin/config.inc.php <<'PHP'
 <?php
 declare(strict_types=1);
@@ -103,13 +98,10 @@ $cfg['UploadDir'] = '';
 $cfg['SaveDir'] = '';
 PHP
 
-  # استبدل السرّ
   sed -i "s|__BLOWFISH__|$BLOWFISH|g" phpmyadmin/config.inc.php
 
-  # احذف مجلد setup للحماية (غير مطلوب مع config الجاهز)
   rm -rf phpmyadmin/setup 2>/dev/null || true
 
-  # صلاحيات نهائية
   chown -R www-data:www-data phpmyadmin
   find phpmyadmin -type f -exec chmod 0644 {} \; 2>/dev/null || true
   find phpmyadmin -type d -exec chmod 0755 {} \; 2>/dev/null || true
@@ -153,7 +145,7 @@ panel_conf(){
     --name-first="$FIRSTNAME" --name-last="$LASTNAME" \
     --password="$PASSWORD" --admin=1 || true
 
-  # ===== DB Host (خارجي) =====
+  # ===== DB Host (external) =====
   create_database_host_user
   add_panel_database_host
 
@@ -190,7 +182,7 @@ panel_conf(){
   NODE_ID=$(mariadb -u root -sN -e "USE panel; SELECT id FROM nodes WHERE fqdn='${FQDN}' OR name='${NODE_NAME}' ORDER BY id ASC LIMIT 1;")
   echo ">>> Node=$NODE_ID"
 
-  # ===== Services (pteroq + redis) =====
+  # ===== Services =====
   chown -R www-data:www-data /var/www/pterodactyl/*
   curl -fsSL -o /etc/systemd/system/pteroq.service \
     https://raw.githubusercontent.com/guldkage/Pterodactyl-Installer/main/configs/pteroq.service
@@ -198,7 +190,7 @@ panel_conf(){
   systemctl enable --now redis-server
   systemctl enable --now pteroq.service
 
-  # ===== Nginx + Cert (قبل Wings لو SSL=true) =====
+  # ===== Nginx + Cert =====
   rm -rf /etc/nginx/sites-enabled/default
   if [ "${SSL,,}" = "true" ]; then
     curl -fsSL -o /etc/nginx/sites-enabled/pterodactyl.conf \
@@ -217,7 +209,7 @@ panel_conf(){
   # ===== phpMyAdmin =====
   install_phpmyadmin
 
-  # ===== Wings (تثبيت + توليد config.yml بالطريقة الصحيحة + تشغيل) =====
+  # ===== Wings (install + correct config.yml generation + start) =====
   if [ "${WINGS,,}" = "true" ] && [ -n "${NODE_ID:-}" ]; then
     echo ">>> Installing Wings + Docker…"
     curl -sSL https://get.docker.com/ | CHANNEL=stable bash
@@ -235,9 +227,11 @@ panel_conf(){
     systemctl stop wings 2>/dev/null || true
     systemctl disable wings 2>/dev/null || true
 
-    # ✅ الطريقة الصحيحة لكتابة config.yml
+    # generate config.yml the right way
     if php artisan list | grep -q "p:node:configuration"; then
       php artisan p:node:configuration $NODE_ID > /etc/pterodactyl/config.yml
+    elif php artisan list | grep -q "p:wings:configuration"; then
+      php artisan p:wings:configuration $NODE_ID > /etc/pterodactyl/config.yml
     else
       echo "(!) No artisan config generator found. Copy config from Panel → Nodes → Configuration."
     fi
