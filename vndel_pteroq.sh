@@ -14,7 +14,7 @@ finish(){
   clear || true
   echo ""
   echo "[Vndel] [!] Panel installed successfully."
-  echo "phpMyAdmin: http://${FQDN}/phpmyadmin   (أو https إذا مفعّل SSL)"
+  echo "phpMyAdmin: http://${FQDN}/phpmyadmin Use HTTP or HTTPS
   echo ""
   echo "Restarting after 5 secounds...."
   sleep 5
