@@ -284,9 +284,7 @@ panel_install(){
     run "Add Redis repo list" \
       "bash -c 'echo \"deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb \$(lsb_release -cs) main\" > /etc/apt/sources.list.d/redis.list'"
 
-    run "Add MariaDB repo setup" \
-      "curl -sS https://downloads.mariadb.com/MariaDB/mariadb_repo_setup | bash"
-
+    # NOTE: شلّنا خطوة mariadb_repo_setup نهائياً
     run "apt update (after repos)" "apt update"
 
     run "Enable Ubuntu universe" \
@@ -311,8 +309,7 @@ panel_install(){
 
     run "apt update (after repos)" "apt update -y"
 
-    run "Add MariaDB repo setup" \
-      "curl -sS https://downloads.mariadb.com/MariaDB/mariadb_repo_setup | bash"
+    # NOTE: شلّنا خطوة mariadb_repo_setup نهائياً
   fi
 
   if [ "$dist" = "debian" ] && [ "$version" = "12" ]; then
@@ -333,8 +330,7 @@ panel_install(){
 
     run "apt update (after repos)" "apt update -y"
 
-    run "Add MariaDB repo setup" \
-      "curl -sS https://downloads.mariadb.com/MariaDB/mariadb_repo_setup | bash"
+    # NOTE: شلّنا خطوة mariadb_repo_setup نهائياً
   fi
 
   run "Install base services (MariaDB, tar, unzip, git, redis, nginx)" \
