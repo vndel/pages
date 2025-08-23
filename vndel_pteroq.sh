@@ -39,6 +39,65 @@ create_database_host_user() {
   echo "    Password: ${DBPASSWORD}"
 }
 
+add_panel_database_host() {
+  # نستخدم نفس قيمك:
+  # - Host = FQDN
+  # - Username = pterodactyl
+  # - Password = نفس DBPASSWORD اللي اتولد للبانل
+  # - Port = 3306
+  # - Name = game-dbhost
+  # - max_databases = 0 (غير محدود)
+
+  echo ">>> Adding Database Host into the Panel (via Laravel, encrypted password)…"
+
+  ( cd /var/www/pterodactyl && \
+    FQDN="$FQDN" DBPASSWORD="$DBPASSWORD" php -r '
+      require "vendor/autoload.php";
+      $app = require "bootstrap/app.php";
+      $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+      $kernel->bootstrap();
+
+      // نستخدم موديل اللوحة لضمان نفس التشفير
+      $name     = "game-dbhost";
+      $host     = getenv("FQDN") ?: "127.0.0.1";
+      $port     = 3306;
+      $username = "pterodactyl";
+      $password = getenv("DBPASSWORD");   // Laravel سيشفّرها تلقائياً حسب إعدادات المشروع
+
+      // متغيرات إضافية شائعة في بعض الإصدارات — لو غير موجودة في سكيمتك سيتجاهلها Eloquent:
+      $attrs = [
+        "name"           => $name,
+        "host"           => $host,
+        "port"           => $port,
+        "username"       => $username,
+        "password"       => $password,
+        "max_databases"  => 0,
+        // "node_id"      => null,   // فعّلها لو تبغى تربطه بنود معيّن
+        // "ssl"          => 0,      // في حال وجود عمود ssl في نسختك
+      ];
+
+      // نحاول إحضار الموديل مع توافق الأسماء عبر الإصدارات
+      $model = null;
+      if (class_exists("Pterodactyl\\Models\\DatabaseHost")) {
+        $model = "Pterodactyl\\Models\\DatabaseHost";
+      } elseif (class_exists("Pterodactyl\\Models\\Database\\Host")) {
+        $model = "Pterodactyl\\Models\\Database\\Host";
+      } else {
+        fwrite(STDERR, "DatabaseHost model not found.\\n");
+        exit(1);
+      }
+
+      // idempotent: لو موجود بنفس (host,port,username) نحدّثه، وإلا ننشئه
+      $model::updateOrCreate(
+        ["host" => $host, "port" => $port, "username" => $username],
+        $attrs
+      );
+
+      echo "OK\\n";
+    ' )
+}
+
+
 panel_conf(){
   cd /var/www/pterodactyl
 
@@ -83,6 +142,9 @@ panel_conf(){
 
   # إنشاء/تجهيز Database Host user (نفس باسورد DBPASSWORD)
   create_database_host_user
+  
+  # إنشاء/تجهيز Database Panel user (نفس باسورد DBPASSWORD)
+  add_panel_database_host
 
   # ===== Defaults للـ Location/Node (بدون exports) =====
   LOC_SHORT="dc1"
