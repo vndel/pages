@@ -5,19 +5,63 @@ set -uo pipefail
 # Pterodactyl fast installer (Panel + Location + Node + DB Host + Wings)
 # Usage:
 #   ./install.sh <FQDN> <SSL true|false> <email> <username> <password> <wings true|false>
+# Example:
+#   ./install.sh 93.113.180.194 false info@vndel.com admin 'Strong#Pass1' true
 ########################################################################
 
 dist="$(. /etc/os-release && echo "$ID")"
 version="$(. /etc/os-release && echo "$VERSION_ID")"
 
 finish(){
- ## clear || true
+  ### clear || true
   echo ""
   echo "[Vndel] [!] Panel installed successfully."
   echo ""
 }
 
 require_arg(){ if [ -z "${!1:-}" ]; then echo "Missing arg: $1"; exit 1; fi; }
+
+create_database_host_user() {
+  # user/password لِـ DB Host (خارجي) — نفس باسورد البانل DBPASSWORD
+  mariadb -u root -e "CREATE USER IF NOT EXISTS 'pterodactyl'@'%' IDENTIFIED BY '${DBPASSWORD}';"
+  mariadb -u root -e "GRANT ALL PRIVILEGES ON *.* TO 'pterodactyl'@'%' WITH GRANT OPTION;"
+  mariadb -u root -e "FLUSH PRIVILEGES;"
+}
+
+add_panel_database_host() {
+  # إضافة Database Host داخل البانل (يحفظ مشفّرًا عبر Eloquent/Mutators)
+  (
+    cd /var/www/pterodactyl || exit 1
+    FQDN="$FQDN" DBPASSWORD="$DBPASSWORD" php -r '
+      require "vendor/autoload.php";
+      $app = require "bootstrap/app.php";
+      $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+      $kernel->bootstrap();
+
+      $model = class_exists("Pterodactyl\\Models\\DatabaseHost")
+        ? "Pterodactyl\\Models\\DatabaseHost"
+        : (class_exists("Pterodactyl\\Models\\Database\\Host")
+            ? "Pterodactyl\\Models\\Database\\Host" : null);
+
+      if (!$model) { fwrite(STDERR, "DatabaseHost model not found.\n"); exit(1); }
+
+      $attrs = [
+        "name"          => "game-dbhost",
+        "host"          => getenv("FQDN"),
+        "port"          => 3306,
+        "username"      => "pterodactyl",
+        "password"      => getenv("DBPASSWORD"),
+        "max_databases" => 0,
+      ];
+
+      $model::updateOrCreate(
+        ["host"=>$attrs["host"],"port"=>$attrs["port"],"username"=>$attrs["username"]],
+        $attrs
+      );
+      echo "Database Host added.\n";
+    '
+  )
+}
 
 panel_conf(){
   cd /var/www/pterodactyl || exit 1
@@ -32,13 +76,13 @@ panel_conf(){
   LASTNAME="Creator"
   DBPASSWORD=$(tr -dc 'A-Za-z0-9' </dev/urandom | fold -w 16 | head -n 1)
 
-  echo ">>> Configuring MariaDB for panel..."
-  mariadb -u root -e "CREATE USER IF NOT EXISTS 'pterodactyl'@'%' IDENTIFIED BY '${DBPASSWORD}';"
+  echo ">>> Configuring MariaDB (panel user/db)…"
+  mariadb -u root -e "CREATE USER IF NOT EXISTS 'pterodactyl'@'127.0.0.1' IDENTIFIED BY '${DBPASSWORD}';"
   mariadb -u root -e "CREATE DATABASE IF NOT EXISTS panel;"
-  mariadb -u root -e "GRANT ALL PRIVILEGES ON panel.* TO 'pterodactyl'@'%' WITH GRANT OPTION;"
+  mariadb -u root -e "GRANT ALL PRIVILEGES ON panel.* TO 'pterodactyl'@'127.0.0.1' WITH GRANT OPTION;"
   mariadb -u root -e "FLUSH PRIVILEGES;"
 
-  echo ">>> Running artisan setup..."
+  echo ">>> Artisan environment setup…"
   php artisan p:environment:setup \
     --author="$EMAIL" --url="$appurl" --timezone="CET" --telemetry=false \
     --cache="redis" --session="redis" --queue="redis" \
@@ -55,6 +99,10 @@ panel_conf(){
     --email="$EMAIL" --username="$USERNAME" \
     --name-first="$FIRSTNAME" --name-last="$LASTNAME" \
     --password="$PASSWORD" --admin=1 || true
+
+  # ===== DB Host (خارجي) =====
+  create_database_host_user
+  add_panel_database_host
 
   # ===== Location =====
   LOC_SHORT="dc1"
@@ -89,26 +137,46 @@ panel_conf(){
   NODE_ID=$(mariadb -u root -sN -e "USE panel; SELECT id FROM nodes WHERE fqdn='${FQDN}' OR name='${NODE_NAME}' ORDER BY id ASC LIMIT 1;")
   echo ">>> Node=$NODE_ID"
 
-  # ===== Wings config generation =====
-  if [ "$WINGS" = true ] && [ -n "$NODE_ID" ]; then
-    echo ">>> Generating wings config.yml for Node=$NODE_ID..."
-    if php artisan list | grep -q "p:node:configuration"; then
-      php artisan p:node:configuration --node="$NODE_ID" --output="/etc/pterodactyl/config.yml" || true
-    elif php artisan list | grep -q "p:wings:configuration"; then
-      php artisan p:wings:configuration --node="$NODE_ID" --output="/etc/pterodactyl/config.yml" || true
-    else
-      echo "(!) Artisan config command not found. Get config manually from Panel → Node → Configuration"
+  # ===== Wings (تثبيت + تهيئة + config.yml) =====
+  if [ "${WINGS,,}" = "true" ]; then
+    echo ">>> Installing Wings + Docker…"
+    curl -sSL https://get.docker.com/ | CHANNEL=stable bash
+    systemctl enable --now docker
+
+    mkdir -p /etc/pterodactyl
+    apt-get -y install curl tar unzip
+
+    ARCH="$(uname -m)"; [ "$ARCH" = "x86_64" ] && WARCH="amd64" || WARCH="arm64"
+    curl -fsSL -o /usr/local/bin/wings "https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_${WARCH}"
+    chmod +x /usr/local/bin/wings
+
+    curl -fsSL -o /etc/systemd/system/wings.service \
+      "https://raw.githubusercontent.com/guldkage/Pterodactyl-Installer/main/configs/wings.service"
+    systemctl daemon-reload
+    systemctl enable --now wings || true  # قد يفشل حتى توليد config.yml — عادي
+
+    # توليد config.yml حسب أوامر Artisan المتاحة
+    if [ -n "${NODE_ID:-}" ]; then
+      if php artisan list | grep -q "p:node:configuration"; then
+        php artisan p:node:configuration --node="$NODE_ID" --output="/etc/pterodactyl/config.yml" || true
+      elif php artisan list | grep -q "p:wings:configuration"; then
+        php artisan p:wings:configuration --node="$NODE_ID" --output="/etc/pterodactyl/config.yml" || true
+      else
+        echo "(!) No artisan config generator found. Copy config from Panel → Nodes → Configuration."
+      fi
+      systemctl restart wings || true
+      systemctl status wings --no-pager || true
     fi
   fi
 
-  # ===== Services =====
+  # ===== Services & Nginx =====
   chown -R www-data:www-data /var/www/pterodactyl/*
-  curl -fsSL -o /etc/systemd/system/pteroq.service https://raw.githubusercontent.com/guldkage/Pterodactyl-Installer/main/configs/pteroq.service
+  curl -fsSL -o /etc/systemd/system/pteroq.service \
+    https://raw.githubusercontent.com/guldkage/Pterodactyl-Installer/main/configs/pteroq.service
   (crontab -l 2>/dev/null; echo "* * * * * php /var/www/pterodactyl/artisan schedule:run >> /dev/null 2>&1") | crontab -
   systemctl enable --now redis-server
   systemctl enable --now pteroq.service
 
-  # ===== Nginx =====
   rm -rf /etc/nginx/sites-enabled/default
   if [ "${SSL,,}" = "true" ]; then
     curl -fsSL -o /etc/nginx/sites-enabled/pterodactyl.conf \
@@ -130,8 +198,15 @@ panel_conf(){
 panel_install(){
   echo ">>> Installing prerequisites..."
   apt update
-  apt install -y certbot mariadb-server tar unzip git redis-server nginx php8.3 php8.3-{cli,gd,mysql,pdo,mbstring,tokenizer,bcmath,xml,fpm,curl,zip}
+  # بدون مستودعات خارجية لـ MariaDB — من apt مباشرة
+  apt install -y certbot mariadb-server tar unzip git redis-server nginx \
+                 php8.3 php8.3-{cli,gd,mysql,pdo,mbstring,tokenizer,bcmath,xml,fpm,curl,zip}
   curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+
+  # تحسين توافق MariaDB (لو كان السطر موجود)
+  sed -i 's/character-set-collations = utf8mb4=uca1400_ai_ci/character-set-collations = utf8mb4=utf8mb4_general_ci/' \
+    /etc/mysql/mariadb.conf.d/50-server.cnf 2>/dev/null || true
+  systemctl restart mariadb
 
   echo ">>> Preparing Pterodactyl panel..."
   mkdir -p /var/www/pterodactyl
