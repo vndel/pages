@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -uo pipefail   # أزلنا -e حتى ما يوقف السكربت عند أي خطأ بسيط (composer warnings مثلاً)
+set -uo pipefail
 
 ########################################################################
 # Pterodactyl fast installer (Panel + Location + Node + DB Host + Wings)
@@ -18,51 +18,6 @@ finish(){
 }
 
 require_arg(){ if [ -z "${!1:-}" ]; then echo "Missing arg: $1"; exit 1; fi; }
-
-create_database_host_user() {
-  echo ">>> Preparing Database Host MySQL user…"
-  mariadb -u root -e "CREATE USER IF NOT EXISTS 'pterodactyl'@'%' IDENTIFIED BY '${DBPASSWORD}';"
-  mariadb -u root -e "GRANT ALL PRIVILEGES ON *.* TO 'pterodactyl'@'%' WITH GRANT OPTION;"
-  mariadb -u root -e "FLUSH PRIVILEGES;"
-}
-
-add_panel_database_host() {
-  echo ">>> Adding Database Host into the Panel (Laravel-encrypted)…"
-  (
-    cd /var/www/pterodactyl || exit 1
-    FQDN="$FQDN" DBPASSWORD="$DBPASSWORD" php -r '
-      require "vendor/autoload.php";
-      $app = require "bootstrap/app.php";
-      $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
-      $kernel->bootstrap();
-
-      $model = class_exists("Pterodactyl\\Models\\DatabaseHost")
-        ? "Pterodactyl\\Models\\DatabaseHost"
-        : (class_exists("Pterodactyl\\Models\\Database\\Host")
-            ? "Pterodactyl\\Models\\Database\\Host" : null);
-
-      if (!$model) {
-        fwrite(STDERR, "DatabaseHost model not found.\n");
-        exit(1);
-      }
-
-      $attrs = [
-        "name"          => "game-dbhost",
-        "host"          => getenv("FQDN"),
-        "port"          => 3306,
-        "username"      => "pterodactyl",
-        "password"      => getenv("DBPASSWORD"),
-        "max_databases" => 0,
-      ];
-
-      $model::updateOrCreate(
-        ["host"=>$attrs["host"],"port"=>$attrs["port"],"username"=>$attrs["username"]],
-        $attrs
-      );
-      echo "Database Host added successfully.\n";
-    '
-  )
-}
 
 panel_conf(){
   cd /var/www/pterodactyl || exit 1
@@ -102,9 +57,37 @@ panel_conf(){
     --name-first="$FIRSTNAME" --name-last="$LASTNAME" \
     --password="$PASSWORD" --admin=1 || true
 
-  # إضافة Database Host
-  create_database_host_user
-  add_panel_database_host
+  # ===== Location + Node =====
+  echo ">>> Creating Location and Node..."
+  LOC_SHORT="dc1"
+  LOC_LONG="Default Datacenter"
+  php artisan p:location:make --short="$LOC_SHORT" --long="$LOC_LONG" || true
+  LOCATION_ID=$(mariadb -u pterodactyl -p"$DBPASSWORD" panel -sN -e "SELECT id FROM locations WHERE short='${LOC_SHORT}' LIMIT 1;")
+
+  NODE_NAME="auto-node"
+  NODE_DESC="Auto-created node"
+  NODE_SCHEME="$([ "${SSL,,}" = "true" ] && echo https || echo http)"
+
+  php artisan p:node:make \
+    --name="$NODE_NAME" \
+    --description="$NODE_DESC" \
+    --locationId="$LOCATION_ID" \
+    --fqdn="$FQDN" \
+    --public=1 \
+    --scheme="$NODE_SCHEME" \
+    --proxy=0 \
+    --maintenance=0 \
+    --maxMemory=0 \
+    --overallocateMemory=-1 \
+    --maxDisk=0 \
+    --overallocateDisk=-1 \
+    --uploadSize=100 \
+    --daemonListeningPort=8080 \
+    --daemonSFTPPort=2022 \
+    --daemonBase="/var/lib/pterodactyl/volumes" || true
+
+  NODE_ID=$(mariadb -u pterodactyl -p"$DBPASSWORD" panel -sN -e "SELECT id FROM nodes WHERE fqdn='${FQDN}' LIMIT 1;")
+  echo ">>> Location=$LOCATION_ID, Node=$NODE_ID"
 
   echo ">>> Setting ownerships and services..."
   chown -R www-data:www-data /var/www/pterodactyl/*
@@ -112,20 +95,6 @@ panel_conf(){
   (crontab -l 2>/dev/null; echo "* * * * * php /var/www/pterodactyl/artisan schedule:run >> /dev/null 2>&1") | crontab -
   systemctl enable --now redis-server
   systemctl enable --now pteroq.service
-
-  if [ "$WINGS" = true ]; then
-    echo ">>> Installing Wings..."
-    curl -sSL https://get.docker.com/ | CHANNEL=stable bash
-    systemctl enable --now docker
-    mkdir -p /etc/pterodactyl
-    apt-get -y install curl tar unzip
-    ARCH="$(uname -m)"; [ "$ARCH" = "x86_64" ] && WARCH="amd64" || WARCH="arm64"
-    curl -fsSL -o /usr/local/bin/wings "https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_${WARCH}"
-    curl -fsSL -o /etc/systemd/system/wings.service "https://raw.githubusercontent.com/guldkage/Pterodactyl-Installer/main/configs/wings.service"
-    chmod u+x /usr/local/bin/wings
-    systemctl enable --now wings || true
-    systemctl restart wings || true
-  fi
 
   echo ">>> Configuring Nginx..."
   rm -rf /etc/nginx/sites-enabled/default
@@ -160,7 +129,7 @@ panel_install(){
   chmod -R 755 storage/* bootstrap/cache/
   cp -n .env.example .env
 
-  echo "⚙️ Running composer install (this may take several minutes)..."
+  echo "⚙️ Running composer install (this may take a few minutes)..."
   composer install --no-dev --optimize-autoloader --no-interaction || true
 
   php artisan key:generate --force || true
