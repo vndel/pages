@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>بطاقة تحميل مود – HTML/CSS</title>
+  <title>CoreMind - Download Resource</title>
   <style>
     :root {
       --bg: #0b0f1a;
@@ -49,7 +49,6 @@
       transition: transform .35s cubic-bezier(.2,.9,.2,1), filter .35s, box-shadow .35s;
     }
 
-    /* soft light ring on hover */
     .download-card::after {
       content: "";
       position: absolute; inset: -2px;
@@ -100,16 +99,16 @@
     }
     .desc { margin: 8px 0 12px; color: var(--muted); line-height: 1.6; }
     .meta { font-size: .9rem; color: #c9d7f0; opacity: .85; }
+    .meta .size { font-feature-settings: "tnum"; }
 
     .cta {
       align-self: stretch;
       display: grid; place-items: center;
     }
     .btn {
-      appearance: none; -webkit-appearance: none; cursor: pointer;
+      appearance: none; cursor: pointer;
       text-decoration: none; color: #0a1426; font-weight: 800; letter-spacing: .3px;
-      padding: 14px 22px; border-radius: 14px;
-      border: 0;
+      padding: 14px 22px; border-radius: 14px; border: 0;
       background: linear-gradient(135deg, var(--accent), var(--accent-2));
       box-shadow: 0 10px 20px rgba(110,168,254,0.35);
       display: inline-flex; align-items: center; gap: 10px;
@@ -120,17 +119,21 @@
     .btn:hover { transform: translateY(-2px); filter: saturate(1.08); box-shadow: 0 14px 26px rgba(110,168,254,0.45); }
     .btn:active { transform: translateY(0); box-shadow: 0 8px 12px rgba(110,168,254,0.3); }
 
-    /* subtle animated arrow on card hover */
     .download-card:hover .btn .arrow { transform: translateX(-2px); }
     .arrow { transition: transform .35s ease; }
 
-    /* responsive: keep it افقي */
+    .mirrors {
+      margin-top: 10px; font-size: .9rem;
+    }
+    .mirrors a {
+      color: #b9d3ff; text-decoration: underline dotted; margin-inline-start: 8px;
+    }
+
     @media (max-width: 720px) {
       .download-card { grid-template-columns: 110px 1fr; }
       .cta { grid-column: 1 / -1; justify-self: start; }
     }
 
-    /* احترام تفضيل تقليل الحركة */
     @media (prefers-reduced-motion: reduce) {
       .download-card, .btn, .arrow, .badge .shine { transition: none !important; }
     }
@@ -151,23 +154,146 @@
     <div class="content">
       <div class="top">
         <h3 class="title">تحميل المود</h3>
-        <span class="version" title="الإصدار">v2.3.1</span>
+        <span id="version" class="version" title="الإصدار">جارٍ التحميل...</span>
       </div>
       <p class="desc">نسخة محسّنة مع إصلاحات واستقرار أعلى. يدعم أحدث التحديثات ويعمل على جميع الإصدارات المتوافقة.</p>
-      <div class="meta">الحجم: 142MB • آخر تحديث: 16 أغسطس 2025</div>
+      <div id="meta" class="meta">
+        <span class="size">الحجم: …</span> • <span class="updated">آخر تحديث: …</span>
+      </div>
     </div>
 
     <div class="cta">
-      <!-- ضع رابط الملف الحقيقي هنا واستفد من خاصية download -->
-      <a class="btn" href="./mod-v2.3.1.zip" download>
+      <a id="downloadBtn" class="btn" href="#" download>
         تنزيل الآن
         <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M14 12H4" />
           <path d="M10 8l4 4-4 4" />
         </svg>
       </a>
+      <div class="mirrors">
+        مرايا التحميل:
+        <a id="mirror1" href="#" download>رابط 1 (Raw)</a> /
+        <a id="mirror2" href="#" download>رابط 2 (Pages)</a>
+      </div>
     </div>
   </article>
+
+  <script>
+    // روابط التحميل
+    const PRIMARY_URL = "https://raw.githubusercontent.com/vndel/pages/main/coremind.zip";
+    const MIRROR_URL  = "http://vndel.github.io/pages/coremind.zip";
+    const VERSION_JSON = "https://raw.githubusercontent.com/vndel/pages/main/coremind_version.json";
+
+    const versionEl   = document.getElementById("version");
+    const metaEl      = document.getElementById("meta");
+    const sizeEl      = metaEl.querySelector(".size");
+    const updatedEl   = metaEl.querySelector(".updated");
+    const downloadBtn = document.getElementById("downloadBtn");
+    const mirror1     = document.getElementById("mirror1");
+    const mirror2     = document.getElementById("mirror2");
+
+    // تهيئة روابط الأزرار
+    downloadBtn.href = PRIMARY_URL;   // الأساسي
+    mirror1.href     = PRIMARY_URL;   // مرآة 1
+    mirror2.href     = MIRROR_URL;    // مرآة 2
+
+    // تنسيق الحجم إلى صيغة بشرية
+    function formatBytes(bytes) {
+      if (!Number.isFinite(bytes) || bytes <= 0) return "غير معروف";
+      const units = ["B","KB","MB","GB","TB"];
+      const i = Math.floor(Math.log(bytes) / Math.log(1024));
+      const value = bytes / Math.pow(1024, i);
+      return `${value.toFixed(value >= 100 ? 0 : value >= 10 ? 1 : 2)} ${units[i]}`;
+    }
+
+    // محاولة جلب الحجم عبر HEAD ثم Fallback إلى Range GET
+    async function getFileSize(url) {
+      try {
+        // 1) HEAD
+        const head = await fetch(url, { method: "HEAD" });
+        if (head.ok) {
+          const len = head.headers.get("content-length");
+          if (len) return parseInt(len, 10);
+        }
+      } catch (e) {
+        // تجاهل ونجرّب الخطة ب
+      }
+      try {
+        // 2) GET برينج صغير لاستخراج Content-Range إن توفر
+        const res = await fetch(url, { headers: { Range: "bytes=0-0" } });
+        if (res.ok) {
+          const len = res.headers.get("content-length");
+          const range = res.headers.get("content-range"); // شكلها: bytes 0-0/123456
+          if (range && range.includes("/")) {
+            const total = range.split("/")[1];
+            const totalNum = parseInt(total, 10);
+            if (Number.isFinite(totalNum)) return totalNum;
+          }
+          if (len) return parseInt(len, 10);
+        }
+      } catch (e) {
+        // no-op
+      }
+      return null;
+    }
+
+    // تحديث الحجم بعرض أول نتيجة ناجحة (أو الأفضلية للرابط الأساسي)
+    async function updateFileSize() {
+      const primarySize = await getFileSize(PRIMARY_URL);
+      if (primarySize) {
+        sizeEl.textContent = "الحجم: " + formatBytes(primarySize);
+        return;
+      }
+      const mirrorSize = await getFileSize(MIRROR_URL);
+      if (mirrorSize) {
+        sizeEl.textContent = "الحجم: " + formatBytes(mirrorSize);
+        return;
+      }
+      sizeEl.textContent = "الحجم: غير معروف";
+    }
+
+    // قراءة الإصدار وآخر تحديث (إن وُجد)
+    async function updateVersionAndDate() {
+      try {
+        const res = await fetch(VERSION_JSON);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+
+        if (data.version) {
+          versionEl.textContent = "v" + String(data.version).trim();
+        } else {
+          versionEl.textContent = "غير متوفر";
+        }
+
+        if (data.lastUpdate) {
+          // لو بصيغة ISO نحاول تنسيقها؛ غير ذلك نعرضها كما هي
+          const text = String(data.lastUpdate).trim();
+          const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+          if (isoMatch) {
+            const d = new Date(text);
+            // تنسيق عربي بسيط: 16 أغسطس 2025
+            const months = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
+            const day = d.getDate();
+            const month = months[d.getMonth()];
+            const year = d.getFullYear();
+            updatedEl.textContent = "آخر تحديث: " + `${day} ${month} ${year}`;
+          } else {
+            updatedEl.textContent = "آخر تحديث: " + text;
+          }
+        } else {
+          updatedEl.textContent = "آخر تحديث: غير متوفر";
+        }
+      } catch (err) {
+        console.error("خطأ في جلب الإصدار/التاريخ:", err);
+        versionEl.textContent = "خطأ";
+        // لا نغيّر updatedEl هنا، نخليه على قيمته الحالية
+      }
+    }
+
+    // تشغيل التحديثات
+    updateVersionAndDate();
+    updateFileSize();
+  </script>
 
 </body>
 </html>
