@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CoreMind - Download Resource</title>
+  <title>بطاقة تحميل مود – HTML/CSS</title>
   <style>
     :root {
       --bg: #0b0f1a;
@@ -122,13 +122,6 @@
     .download-card:hover .btn .arrow { transform: translateX(-2px); }
     .arrow { transition: transform .35s ease; }
 
-    .mirrors {
-      margin-top: 10px; font-size: .9rem;
-    }
-    .mirrors a {
-      color: #b9d3ff; text-decoration: underline dotted; margin-inline-start: 8px;
-    }
-
     @media (max-width: 720px) {
       .download-card { grid-template-columns: 110px 1fr; }
       .cta { grid-column: 1 / -1; justify-self: start; }
@@ -170,18 +163,13 @@
           <path d="M10 8l4 4-4 4" />
         </svg>
       </a>
-      <div class="mirrors">
-        مرايا التحميل:
-        <a id="mirror1" href="#" download>رابط 1 (Raw)</a> /
-        <a id="mirror2" href="#" download>رابط 2 (Pages)</a>
-      </div>
     </div>
   </article>
 
   <script>
-    // روابط التحميل
-    const PRIMARY_URL = "https://raw.githubusercontent.com/vndel/pages/main/coremind.zip";
-    const MIRROR_URL  = "http://vndel.github.io/pages/coremind.zip";
+    // رابط التحميل الوحيد
+    const FILE_URL = "http://vndel.github.io/pages/coremind.zip";
+    // مصدر الإصدار/التاريخ (لن يُعرض في الواجهة)
     const VERSION_JSON = "https://raw.githubusercontent.com/vndel/pages/main/coremind_version.json";
 
     const versionEl   = document.getElementById("version");
@@ -189,13 +177,9 @@
     const sizeEl      = metaEl.querySelector(".size");
     const updatedEl   = metaEl.querySelector(".updated");
     const downloadBtn = document.getElementById("downloadBtn");
-    const mirror1     = document.getElementById("mirror1");
-    const mirror2     = document.getElementById("mirror2");
 
-    // تهيئة روابط الأزرار
-    downloadBtn.href = PRIMARY_URL;   // الأساسي
-    mirror1.href     = PRIMARY_URL;   // مرآة 1
-    mirror2.href     = MIRROR_URL;    // مرآة 2
+    // وضع رابط التحميل على الزر
+    downloadBtn.href = FILE_URL;
 
     // تنسيق الحجم إلى صيغة بشرية
     function formatBytes(bytes) {
@@ -206,53 +190,43 @@
       return `${value.toFixed(value >= 100 ? 0 : value >= 10 ? 1 : 2)} ${units[i]}`;
     }
 
-    // محاولة جلب الحجم عبر HEAD ثم Fallback إلى Range GET
+    // جلب الحجم عبر HEAD ثم Fallback إلى Range GET
     async function getFileSize(url) {
       try {
-        // 1) HEAD
         const head = await fetch(url, { method: "HEAD" });
         if (head.ok) {
           const len = head.headers.get("content-length");
           if (len) return parseInt(len, 10);
         }
-      } catch (e) {
-        // تجاهل ونجرّب الخطة ب
-      }
+      } catch (_) {}
       try {
-        // 2) GET برينج صغير لاستخراج Content-Range إن توفر
         const res = await fetch(url, { headers: { Range: "bytes=0-0" } });
         if (res.ok) {
-          const len = res.headers.get("content-length");
-          const range = res.headers.get("content-range"); // شكلها: bytes 0-0/123456
+          const range = res.headers.get("content-range"); // bytes 0-0/123456
           if (range && range.includes("/")) {
-            const total = range.split("/")[1];
-            const totalNum = parseInt(total, 10);
-            if (Number.isFinite(totalNum)) return totalNum;
+            const total = parseInt(range.split("/")[1], 10);
+            if (Number.isFinite(total)) return total;
           }
+          const len = res.headers.get("content-length");
           if (len) return parseInt(len, 10);
         }
-      } catch (e) {
-        // no-op
-      }
+      } catch (_) {}
       return null;
     }
 
-    // تحديث الحجم بعرض أول نتيجة ناجحة (أو الأفضلية للرابط الأساسي)
     async function updateFileSize() {
-      const primarySize = await getFileSize(PRIMARY_URL);
-      if (primarySize) {
-        sizeEl.textContent = "الحجم: " + formatBytes(primarySize);
-        return;
-      }
-      const mirrorSize = await getFileSize(MIRROR_URL);
-      if (mirrorSize) {
-        sizeEl.textContent = "الحجم: " + formatBytes(mirrorSize);
-        return;
-      }
-      sizeEl.textContent = "الحجم: غير معروف";
+      const size = await getFileSize(FILE_URL);
+      sizeEl.textContent = "الحجم: " + (size ? formatBytes(size) : "غير معروف");
     }
 
-    // قراءة الإصدار وآخر تحديث (إن وُجد)
+    // تنسيق ISO إلى عربي (16 أغسطس 2025)
+    function formatISOToArabic(dateStr) {
+      const d = new Date(dateStr);
+      if (isNaN(d)) return null;
+      const months = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
+      return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+    }
+
     async function updateVersionAndDate() {
       try {
         const res = await fetch(VERSION_JSON);
@@ -266,27 +240,15 @@
         }
 
         if (data.lastUpdate) {
-          // لو بصيغة ISO نحاول تنسيقها؛ غير ذلك نعرضها كما هي
-          const text = String(data.lastUpdate).trim();
-          const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
-          if (isoMatch) {
-            const d = new Date(text);
-            // تنسيق عربي بسيط: 16 أغسطس 2025
-            const months = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
-            const day = d.getDate();
-            const month = months[d.getMonth()];
-            const year = d.getFullYear();
-            updatedEl.textContent = "آخر تحديث: " + `${day} ${month} ${year}`;
-          } else {
-            updatedEl.textContent = "آخر تحديث: " + text;
-          }
+          const isoArabic = formatISOToArabic(String(data.lastUpdate).trim());
+          updatedEl.textContent = "آخر تحديث: " + (isoArabic || String(data.lastUpdate).trim());
         } else {
           updatedEl.textContent = "آخر تحديث: غير متوفر";
         }
       } catch (err) {
         console.error("خطأ في جلب الإصدار/التاريخ:", err);
         versionEl.textContent = "خطأ";
-        // لا نغيّر updatedEl هنا، نخليه على قيمته الحالية
+        // نخلي "آخر تحديث" كما هو إن فشل
       }
     }
 
