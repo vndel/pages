@@ -41,6 +41,13 @@
       padding: 8px;
       font-size: 1em;
     }
+    input[type="date"] {
+      padding: 8px;
+      font-size: 1em;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+      cursor: pointer;
+    }
     .big-copy-btn {
       padding: 8px 12px;
       font-size: 0.9em;
@@ -118,6 +125,7 @@
 <body>
 
 <div class="controls">
+  <input type="date" id="date-picker">
   <select id="currency-select">
     <option value="" disabled selected>💱 Live Currency Converter</option>
   </select>
@@ -131,29 +139,37 @@
 
 <script>
   const baseCurrency = "usd";
-  let targetCurrencies = ["usd", "eur", "try"];
+  let targetCurrencies = ["usd", "syp", "eur", "try"];
   let allCurrencies = {};
   let exchangeRates = {};
+  let selectedDate = "latest";
 
-  async function loadExchangeRates() {
+  async function loadExchangeRates(dateStr) {
     try {
+      const version = dateStr && dateStr !== getTodayStr() ? dateStr : "latest";
+      selectedDate = version;
+
       // تحميل قائمة العملات كاملة
-      const listRes = await fetch(`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies.json`);
+      const listRes = await fetch(`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@${version}/v1/currencies.json`);
       allCurrencies = await listRes.json();
 
       // ملء dropdown العملات كاملة (عدا الي معروضين مسبقا)
       fillCurrencySelect();
 
       // تحميل أسعار الصرف
-      const res = await fetch(`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/${baseCurrency}.json`);
+      const res = await fetch(`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@${version}/v1/currencies/${baseCurrency}.json`);
       const data = await res.json();
       exchangeRates = data[baseCurrency];
 
       renderConverter();
     } catch (err) {
-      document.getElementById("converter").innerHTML = `<p>❌ Failed to load exchange rates.</p>`;
+      document.getElementById("converter").innerHTML = `<p>❌ Failed to load exchange rates for ${dateStr || "today"}.</p>`;
       console.error(err);
     }
+  }
+
+  function getTodayStr() {
+    return new Date().toISOString().split("T")[0];
   }
 
   function fillCurrencySelect() {
@@ -270,7 +286,18 @@
     e.target.value = "";
   });
 
-  window.onload = loadExchangeRates;
+  // تغيير التاريخ
+  document.getElementById("date-picker").addEventListener("change", (e) => {
+    const dateVal = e.target.value;
+    loadExchangeRates(dateVal || undefined);
+  });
+
+  window.onload = () => {
+    const picker = document.getElementById("date-picker");
+    picker.value = getTodayStr();
+    picker.max = getTodayStr();
+    loadExchangeRates();
+  };
 </script>
 
 </body>
